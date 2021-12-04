@@ -123,18 +123,7 @@ class TraceModel(nn.Module):
     @torch.jit.export
     def decode(self, z):
         pad_size = self.latent_size.item() - self.cropped_latent_size
-        z = torch.cat(
-            [
-                z,
-                torch.randn(
-                    z.shape[0],
-                    pad_size,
-                    z.shape[-1],
-                    device=z.device,
-                ),
-            ],
-            1,
-        )
+        z = torch.cat([z, torch.randn(z.shape[0], pad_size, z.shape[-1], device=z.device)], 1)
 
         z = nn.functional.conv1d(z, self.latent_pca.T.unsqueeze(-1))
         z = z + self.latent_mean.unsqueeze(-1)
