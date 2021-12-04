@@ -1,17 +1,15 @@
-import torch
-from torch.utils.data import random_split, DataLoader
-import pytorch_lightning as pl
-
-from prior.model import Model
-from effortless_config import Config
+import math
 from os import environ, path
 
-from udls import SimpleDataset, simple_audio_preprocess
-import numpy as np
-
-import math
-
 import GPUtil as gpu
+import numpy as np
+import pytorch_lightning as pl
+import torch
+from effortless_config import Config
+from torch.utils.data import DataLoader, random_split
+from udls import SimpleDataset, simple_audio_preprocess
+
+from prior.model import Model
 
 
 class args(Config):
@@ -44,10 +42,10 @@ def get_n_signal(a, m):
     cs = a.CYCLE_SIZE
     l = a.N_LAYERS
 
-    rf = (k - 1) * sum(2**(np.arange(l) % cs)) + 1
+    rf = (k - 1) * sum(2 ** (np.arange(l) % cs)) + 1
     ratio = m.encode_params[-1].item()
 
-    return 2**math.ceil(math.log2(rf * ratio))
+    return 2 ** math.ceil(math.log2(rf * ratio))
 
 
 model = Model(
@@ -84,7 +82,7 @@ validation_checkpoint = pl.callbacks.ModelCheckpoint(
 )
 last_checkpoint = pl.callbacks.ModelCheckpoint(filename="last")
 
-CUDA = gpu.getAvailable(maxMemory=.05)
+CUDA = gpu.getAvailable(maxMemory=0.05)
 if len(CUDA):
     environ["CUDA_VISIBLE_DEVICES"] = str(CUDA[0])
     use_gpu = 1
@@ -97,8 +95,7 @@ else:
     use_gpu = 0
 
 trainer = pl.Trainer(
-    logger=pl.loggers.TensorBoardLogger(path.join("runs", args.NAME),
-                                        name="prior"),
+    logger=pl.loggers.TensorBoardLogger(path.join("runs", args.NAME), name="prior"),
     gpus=use_gpu,
     val_check_interval=min(10000, len(train)),
     callbacks=[validation_checkpoint, last_checkpoint],

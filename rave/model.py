@@ -1,20 +1,20 @@
+import math
+from time import time
+
+import numpy as np
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
 import torch.nn.utils.weight_norm as wn
-import numpy as np
-import pytorch_lightning as pl
-from .core import multiscale_stft, Loudness, mod_sigmoid
-from .core import amp_to_impulse_response, fft_convolve
-from .pqmf import CachedPQMF as PQMF
-from sklearn.decomposition import PCA
+from cached_conv import (USE_BUFFER_CONV, AlignBranches, CachedConv1d,
+                         CachedConvTranspose1d, CachedPadding1d,
+                         CachedSequential, Conv1d, get_padding)
 from einops import rearrange
+from sklearn.decomposition import PCA
 
-import math
-
-from time import time
-
-from cached_conv import USE_BUFFER_CONV, get_padding
-from cached_conv import CachedConv1d, CachedConvTranspose1d, Conv1d, CachedPadding1d, AlignBranches, CachedSequential
+from .core import (Loudness, amp_to_impulse_response, fft_convolve,
+                   mod_sigmoid, multiscale_stft)
+from .pqmf import CachedPQMF as PQMF
 
 Conv1d = CachedConv1d if USE_BUFFER_CONV else Conv1d
 ConvTranspose1d = CachedConvTranspose1d if USE_BUFFER_CONV else nn.ConvTranspose1d
@@ -61,7 +61,7 @@ class ResidualStack(nn.Module):
             net.append(
                 Residual(
                     CachedSequential(
-                        nn.LeakyReLU(.2),
+                        nn.LeakyReLU(0.2),
                         wn(
                             Conv1d(
                                 dim,
@@ -69,23 +69,26 @@ class ResidualStack(nn.Module):
                                 kernel_size,
                                 padding=get_padding(
                                     kernel_size,
-                                    dilation=3**i,
+                                    dilation=3 ** i,
                                     mode=padding_mode,
                                 ),
-                                dilation=3**i,
+                                dilation=3 ** i,
                                 bias=bias,
-                            )),
-                        nn.LeakyReLU(.2),
+                            )
+                        ),
+                        nn.LeakyReLU(0.2),
                         wn(
                             Conv1d(
                                 dim,
                                 dim,
                                 kernel_size,
-                                padding=get_padding(kernel_size,
-                                                    mode=padding_mode),
+                                padding=get_padding(kernel_size, mode=padding_mode),
                                 bias=bias,
-                            )),
-                    )))
+                            )
+                        ),
+                    )
+                )
+            )
 
         self.net = CachedSequential(*net)
         self.future_compensation = self.net.future_compensation
@@ -97,7 +100,7 @@ class ResidualStack(nn.Module):
 class UpsampleLayer(nn.Module):
     def __init__(self, in_dim, out_dim, ratio, padding_mode, bias=False):
         super().__init__()
-        net = [nn.LeakyReLU(.2)]
+        net = [nn.LeakyReLU(0.2)]
         if ratio > 1:
             net.append(
                 wn(
@@ -108,7 +111,9 @@ class UpsampleLayer(nn.Module):
                         stride=ratio,
                         padding=ratio // 2,
                         bias=bias,
-                    )))
+                    )
+                )
+            )
         else:
             net.append(
                 wn(
@@ -118,7 +123,9 @@ class UpsampleLayer(nn.Module):
                         3,
                         padding=get_padding(3, mode=padding_mode),
                         bias=bias,
-                    )))
+                    )
+                )
+            )
 
         self.net = CachedSequential(*net)
         self.future_compensation = self.net.future_compensation
@@ -140,9 +147,10 @@ class NoiseGenerator(nn.Module):
                     3,
                     padding=get_padding(3, r, mode=padding_mode),
                     stride=r,
-                ))
+                )
+            )
             if i != len(ratios) - 1:
-                net.append(nn.LeakyReLU(.2))
+                net.append(nn.LeakyReLU(0.2))
 
         self.net = CachedSequential(*net)
         self.data_size = data_size
@@ -167,53 +175,52 @@ class NoiseGenerator(nn.Module):
 
 
 class Generator(nn.Module):
-    def __init__(self,
-                 latent_size,
-                 capacity,
-                 data_size,
-                 ratios,
-                 loud_stride,
-                 use_noise,
-                 noise_ratios,
-                 noise_bands,
-                 padding_mode,
-                 bias=False):
+    def __init__(
+        self,
+        latent_size,
+        capacity,
+        data_size,
+        ratios,
+        loud_stride,
+        use_noise,
+        noise_ratios,
+        noise_bands,
+        padding_mode,
+        bias=False,
+    ):
         super().__init__()
         net = [
             wn(
                 Conv1d(
                     latent_size,
-                    2**len(ratios) * capacity,
+                    2 ** len(ratios) * capacity,
                     7,
                     padding=get_padding(7, mode=padding_mode),
                     bias=bias,
-                ))
+                )
+            )
         ]
         for i, r in enumerate(ratios):
-            in_dim = 2**(len(ratios) - i) * capacity
-            out_dim = 2**(len(ratios) - i - 1) * capacity
+            in_dim = 2 ** (len(ratios) - i) * capacity
+            out_dim = 2 ** (len(ratios) - i - 1) * capacity
 
             net.append(UpsampleLayer(in_dim, out_dim, r, padding_mode))
             net.append(ResidualStack(out_dim, 3, padding_mode))
 
         self.net = CachedSequential(*net)
 
-        wave_gen = wn(
-            Conv1d(out_dim,
-                   data_size,
-                   7,
-                   padding=get_padding(7, mode=padding_mode),
-                   bias=bias))
+        wave_gen = wn(Conv1d(out_dim, data_size, 7, padding=get_padding(7, mode=padding_mode), bias=bias))
 
         loud_gen = wn(
-            Conv1d(out_dim,
-                   1,
-                   2 * loud_stride + 1,
-                   stride=loud_stride,
-                   padding=get_padding(2 * loud_stride + 1,
-                                       loud_stride,
-                                       mode=padding_mode),
-                   bias=bias))
+            Conv1d(
+                out_dim,
+                1,
+                2 * loud_stride + 1,
+                stride=loud_stride,
+                padding=get_padding(2 * loud_stride + 1, loud_stride, mode=padding_mode),
+                bias=bias,
+            )
+        )
 
         branches = [wave_gen, loud_gen]
 
@@ -252,28 +259,16 @@ class Generator(nn.Module):
 
 
 class Encoder(nn.Module):
-    def __init__(self,
-                 data_size,
-                 capacity,
-                 latent_size,
-                 ratios,
-                 padding_mode,
-                 bias=False):
+    def __init__(self, data_size, capacity, latent_size, ratios, padding_mode, bias=False):
         super().__init__()
-        net = [
-            Conv1d(data_size,
-                   capacity,
-                   7,
-                   padding=get_padding(7, mode=padding_mode),
-                   bias=bias)
-        ]
+        net = [Conv1d(data_size, capacity, 7, padding=get_padding(7, mode=padding_mode), bias=bias)]
 
         for i, r in enumerate(ratios):
-            in_dim = 2**i * capacity
-            out_dim = 2**(i + 1) * capacity
+            in_dim = 2 ** i * capacity
+            out_dim = 2 ** (i + 1) * capacity
 
             net.append(nn.BatchNorm1d(in_dim))
-            net.append(nn.LeakyReLU(.2))
+            net.append(nn.LeakyReLU(0.2))
             net.append(
                 Conv1d(
                     in_dim,
@@ -282,9 +277,10 @@ class Encoder(nn.Module):
                     padding=get_padding(2 * r + 1, r, mode=padding_mode),
                     stride=r,
                     bias=bias,
-                ))
+                )
+            )
 
-        net.append(nn.LeakyReLU(.2))
+        net.append(nn.LeakyReLU(0.2))
         net.append(
             Conv1d(
                 out_dim,
@@ -293,7 +289,8 @@ class Encoder(nn.Module):
                 padding=get_padding(5, mode=padding_mode),
                 groups=2,
                 bias=bias,
-            ))
+            )
+        )
 
         self.net = CachedSequential(*net)
         self.future_compensation = self.net.future_compensation
@@ -308,29 +305,31 @@ class Discriminator(nn.Module):
         super().__init__()
 
         net = [nn.Conv1d(in_size, capacity, 15, padding=7)]
-        net.append(nn.LeakyReLU(.2))
+        net.append(nn.LeakyReLU(0.2))
 
         for i in range(n_layers):
             net.append(
                 Conv1d(
-                    capacity * multiplier**i,
-                    min(1024, capacity * multiplier**(i + 1)),
+                    capacity * multiplier ** i,
+                    min(1024, capacity * multiplier ** (i + 1)),
                     41,
                     stride=multiplier,
                     padding=get_padding(41, multiplier),
-                    groups=multiplier**(i + 1),
-                ))
-            net.append(nn.LeakyReLU(.2))
+                    groups=multiplier ** (i + 1),
+                )
+            )
+            net.append(nn.LeakyReLU(0.2))
 
         net.append(
             Conv1d(
-                min(1024, capacity * multiplier**(i + 1)),
-                min(1024, capacity * multiplier**(i + 1)),
+                min(1024, capacity * multiplier ** (i + 1)),
+                min(1024, capacity * multiplier ** (i + 1)),
                 5,
                 padding=get_padding(5),
-            ))
-        net.append(nn.LeakyReLU(.2))
-        net.append(Conv1d(min(1024, capacity * multiplier**(i + 1)), 1, 1))
+            )
+        )
+        net.append(nn.LeakyReLU(0.2))
+        net.append(Conv1d(min(1024, capacity * multiplier ** (i + 1)), 1, 1))
         self.net = nn.ModuleList(net)
 
     def forward(self, x):
@@ -346,7 +345,8 @@ class StackDiscriminators(nn.Module):
     def __init__(self, n_dis, *args, **kwargs):
         super().__init__()
         self.discriminators = nn.ModuleList(
-            [Discriminator(*args, **kwargs) for i in range(n_dis)], )
+            [Discriminator(*args, **kwargs) for i in range(n_dis)],
+        )
 
     def forward(self, x):
         features = []
@@ -357,23 +357,25 @@ class StackDiscriminators(nn.Module):
 
 
 class RAVE(pl.LightningModule):
-    def __init__(self,
-                 data_size,
-                 capacity,
-                 latent_size,
-                 ratios,
-                 bias,
-                 loud_stride,
-                 use_noise,
-                 noise_ratios,
-                 noise_bands,
-                 d_capacity,
-                 d_multiplier,
-                 d_n_layers,
-                 warmup,
-                 mode,
-                 no_latency=False,
-                 sr=24000):
+    def __init__(
+        self,
+        data_size,
+        capacity,
+        latent_size,
+        ratios,
+        bias,
+        loud_stride,
+        use_noise,
+        noise_ratios,
+        noise_bands,
+        d_capacity,
+        d_multiplier,
+        d_n_layers,
+        warmup,
+        mode,
+        no_latency=False,
+        sr=24000,
+    ):
         super().__init__()
         self.save_hyperparameters()
 
@@ -384,12 +386,19 @@ class RAVE(pl.LightningModule):
 
         self.loudness = Loudness(sr, 512)
 
-        self.encoder = Encoder(data_size, capacity, latent_size, ratios,
-                               "causal" if no_latency else "centered", bias)
-        self.decoder = Generator(latent_size, capacity, data_size, ratios,
-                                 loud_stride, use_noise, noise_ratios,
-                                 noise_bands,
-                                 "causal" if no_latency else "centered", bias)
+        self.encoder = Encoder(data_size, capacity, latent_size, ratios, "causal" if no_latency else "centered", bias)
+        self.decoder = Generator(
+            latent_size,
+            capacity,
+            data_size,
+            ratios,
+            loud_stride,
+            use_noise,
+            noise_ratios,
+            noise_bands,
+            "causal" if no_latency else "centered",
+            bias,
+        )
 
         self.discriminator = StackDiscriminators(
             3,
@@ -419,8 +428,8 @@ class RAVE(pl.LightningModule):
         gen_p += list(self.decoder.parameters())
         dis_p = list(self.discriminator.parameters())
 
-        gen_opt = torch.optim.Adam(gen_p, 1e-4, (.5, .9))
-        dis_opt = torch.optim.Adam(dis_p, 1e-4, (.5, .9))
+        gen_opt = torch.optim.Adam(gen_p, 1e-4, (0.5, 0.9))
+        dis_opt = torch.optim.Adam(dis_p, 1e-4, (0.5, 0.9))
 
         return gen_opt, dis_opt
 
@@ -432,8 +441,8 @@ class RAVE(pl.LightningModule):
 
     def distance(self, x, y):
         scales = [2048, 1024, 512, 256, 128]
-        x = multiscale_stft(x, scales, .75)
-        y = multiscale_stft(y, scales, .75)
+        x = multiscale_stft(x, scales, 0.75)
+        y = multiscale_stft(y, scales, 0.75)
 
         lin = sum(list(map(self.lin_distance, x, y)))
         log = sum(list(map(self.log_distance, x, y)))
@@ -518,12 +527,18 @@ class RAVE(pl.LightningModule):
             pred_fake = 0
 
             for scale_true, scale_fake in zip(feature_true, feature_fake):
-                distance = distance + 10 * sum(
-                    map(
-                        lambda x, y: abs(x - y).mean(),
-                        scale_true,
-                        scale_fake,
-                    )) / len(scale_true)
+                distance = (
+                    distance
+                    + 10
+                    * sum(
+                        map(
+                            lambda x, y: abs(x - y).mean(),
+                            scale_true,
+                            scale_fake,
+                        )
+                    )
+                    / len(scale_true)
+                )
 
                 _dis, _adv = self.adversarial_combine(
                     scale_true[-1],
@@ -538,10 +553,10 @@ class RAVE(pl.LightningModule):
                 loss_adv = loss_adv + _adv
 
         else:
-            pred_true = torch.tensor(0.).to(x)
-            pred_fake = torch.tensor(0.).to(x)
-            loss_dis = torch.tensor(0.).to(x)
-            loss_adv = torch.tensor(0.).to(x)
+            pred_true = torch.tensor(0.0).to(x)
+            pred_fake = torch.tensor(0.0).to(x)
+            loss_dis = torch.tensor(0.0).to(x)
+            loss_adv = torch.tensor(0.0).to(x)
 
         # COMPOSE GEN LOSS
         loss_gen = distance + loss_adv + 1e-1 * kl
@@ -613,7 +628,7 @@ class RAVE(pl.LightningModule):
 
             self.fidelity.copy_(torch.from_numpy(var).to(self.fidelity))
 
-            var_percent = [.8, .9, .95, .99]
+            var_percent = [0.8, 0.9, 0.95, 0.99]
             for p in var_percent:
                 self.log(f"{p}%_manifold", np.argmax(var > p))
 

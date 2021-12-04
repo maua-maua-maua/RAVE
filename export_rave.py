@@ -1,15 +1,14 @@
+import logging
+from glob import glob
+from os import path
+
+import cached_conv
 import torch
 import torch.nn as nn
 from effortless_config import Config
-from glob import glob
-from os import path
-import logging
 from termcolor import colored
-import cached_conv
 
-logging.basicConfig(level=logging.INFO,
-                    format=colored("[%(relativeCreated).2f] ", "green") +
-                    "%(message)s")
+logging.basicConfig(level=logging.INFO, format=colored("[%(relativeCreated).2f] ", "green") + "%(message)s")
 
 logging.info("exporting model")
 
@@ -18,26 +17,26 @@ class args(Config):
     RUN = None
     SR = None
     CACHED = False
-    FIDELITY = .95
+    FIDELITY = 0.95
     NAME = "vae"
 
 
 args.parse_args()
 cached_conv.use_buffer_conv(args.CACHED)
 
-from rave.model import RAVE
-from cached_conv import CachedConv1d, CachedConvTranspose1d, AlignBranches
-from rave.resample import Resampling
-from rave.pqmf import CachedPQMF
-from rave.core import search_for_run
+import math
 
 import numpy as np
-import math
+from cached_conv import AlignBranches, CachedConv1d, CachedConvTranspose1d
+
+from rave.core import search_for_run
+from rave.model import RAVE
+from rave.pqmf import CachedPQMF
+from rave.resample import Resampling
 
 
 class TraceModel(nn.Module):
-    def __init__(self, pretrained: RAVE, resample: Resampling,
-                 fidelity: float):
+    def __init__(self, pretrained: RAVE, resample: Resampling, fidelity: float):
         super().__init__()
         latent_size = pretrained.latent_size
         self.resample = resample
@@ -55,20 +54,16 @@ class TraceModel(nn.Module):
         )
 
         latent_size = np.argmax(pretrained.fidelity.numpy() > fidelity)
-        latent_size = 2**math.ceil(math.log2(latent_size))
+        latent_size = 2 ** math.ceil(math.log2(latent_size))
         self.cropped_latent_size = latent_size
 
-        x = torch.zeros(1, 1, 2**14)
+        x = torch.zeros(1, 1, 2 ** 14)
         z = self.encode(x)
         ratio = x.shape[-1] // z.shape[-1]
 
-        self.register_buffer(
-            "encode_params",
-            torch.tensor([1, 1, self.cropped_latent_size, ratio]))
+        self.register_buffer("encode_params", torch.tensor([1, 1, self.cropped_latent_size, ratio]))
 
-        self.register_buffer(
-            "decode_params",
-            torch.tensor([self.cropped_latent_size, ratio, 1, 1]))
+        self.register_buffer("decode_params", torch.tensor([self.cropped_latent_size, ratio, 1, 1]))
 
         self.register_buffer("forward_params", torch.tensor([1, 1, 1, 1]))
 
@@ -100,7 +95,7 @@ class TraceModel(nn.Module):
         z = z - self.latent_mean.unsqueeze(-1)
         z = nn.functional.conv1d(z, self.latent_pca.unsqueeze(-1))
 
-        z = z[:, :self.cropped_latent_size]
+        z = z[:, : self.cropped_latent_size]
         return z
 
     @torch.jit.export
@@ -119,8 +114,8 @@ class TraceModel(nn.Module):
         mean = nn.functional.conv1d(mean, self.latent_pca.unsqueeze(-1))
         var = nn.functional.conv1d(var, self.latent_pca.unsqueeze(-1).pow(2))
 
-        mean = mean[:, :self.cropped_latent_size]
-        var = var[:, :self.cropped_latent_size]
+        mean = mean[:, : self.cropped_latent_size]
+        var = var[:, : self.cropped_latent_size]
         std = var.sqrt()
 
         return mean, std
@@ -128,15 +123,18 @@ class TraceModel(nn.Module):
     @torch.jit.export
     def decode(self, z):
         pad_size = self.latent_size.item() - self.cropped_latent_size
-        z = torch.cat([
-            z,
-            torch.randn(
-                z.shape[0],
-                pad_size,
-                z.shape[-1],
-                device=z.device,
-            )
-        ], 1)
+        z = torch.cat(
+            [
+                z,
+                torch.randn(
+                    z.shape[0],
+                    pad_size,
+                    z.shape[-1],
+                    device=z.device,
+                ),
+            ],
+            1,
+        )
 
         z = nn.functional.conv1d(z, self.latent_pca.T.unsqueeze(-1))
         z = z + self.latent_mean.unsqueeze(-1)
@@ -164,7 +162,7 @@ for m in model.modules():
         nn.utils.remove_weight_norm(m)
 
 logging.info("warmup forward pass")
-x = torch.zeros(1, 1, 2**14)
+x = torch.zeros(1, 1, 2 ** 14)
 if model.pqmf is not None:
     x = model.pqmf(x)
 mean, scale = model.encoder(x)
@@ -185,8 +183,7 @@ cached_modules = [
 model.discriminator = None
 
 for n, m in model.named_modules():
-    if any(list(map(lambda c: isinstance(m, c),
-                    cached_modules))) and args.CACHED:
+    if any(list(map(lambda c: isinstance(m, c), cached_modules))) and args.CACHED:
         m.script_cache()
         n_cache += 1
 
@@ -201,7 +198,7 @@ else:
 
 logging.info("build resampling model")
 resample = Resampling(target_sr, sr)
-x = torch.zeros(1, 1, 2**14)
+x = torch.zeros(1, 1, 2 ** 14)
 resample.to_target_sampling_rate(resample.from_target_sampling_rate(x))
 
 if not resample.identity and args.CACHED:

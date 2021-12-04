@@ -1,4 +1,5 @@
 import math
+
 import torch
 import torch.nn as nn
 
@@ -11,7 +12,7 @@ class QuantizedNormal(nn.Module):
         self.clamp = 4
 
     def from_normal(self, x):
-        return .5 * (1 + torch.erf(x / math.sqrt(2)))
+        return 0.5 * (1 + torch.erf(x / math.sqrt(2)))
 
     def to_normal(self, x):
         x = torch.erfinv(2 * x - 1) * math.sqrt(2)
@@ -60,7 +61,8 @@ class DiagonalShift(nn.Module):
         n_dim = x.shape[1]
         x = torch.split(x, 1, 1)
         x = [
-            self.shift(_x, i, n_dim) for _x, i in zip(
+            self.shift(_x, i, n_dim)
+            for _x, i in zip(
                 x,
                 torch.arange(n_dim).flip(0),
             )

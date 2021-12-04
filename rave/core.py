@@ -1,19 +1,20 @@
-import torch
-import torch.nn as nn
-import torch.fft as fft
-from einops import rearrange
-import numpy as np
-from random import random
-from scipy.signal import lfilter
-from pytorch_lightning.callbacks import ModelCheckpoint
-import librosa as li
 import math
-from os import path
 from glob import glob
+from os import path
+from random import random
+
+import librosa as li
+import numpy as np
+import torch
+import torch.fft as fft
+import torch.nn as nn
+from einops import rearrange
+from pytorch_lightning.callbacks import ModelCheckpoint
+from scipy.signal import lfilter
 
 
 def mod_sigmoid(x):
-    return 2 * torch.sigmoid(x)**2.3 + 1e-7
+    return 2 * torch.sigmoid(x) ** 2.3 + 1e-7
 
 
 def multiscale_stft(signal, scales, overlap):
@@ -23,7 +24,7 @@ def multiscale_stft(signal, scales, overlap):
     ----------
     signal: torch.Tensor
         input signal to process ( B X C X T )
-    
+
     scales: list
         scales to use
     overlap: float
@@ -54,10 +55,10 @@ def random_angle(min_f=20, max_f=8000, sr=24000):
     return rand
 
 
-def pole_to_z_filter(omega, amplitude=.9):
+def pole_to_z_filter(omega, amplitude=0.9):
     z0 = amplitude * np.exp(1j * omega)
-    a = [1, -2 * np.real(z0), abs(z0)**2]
-    b = [abs(z0)**2, -2 * np.real(z0), 1]
+    a = [1, -2 * np.real(z0), abs(z0) ** 2]
+    b = [abs(z0) ** 2, -2 * np.real(z0), 1]
     return b, a
 
 
@@ -68,7 +69,7 @@ def random_phase_mangle(x, min_f, max_f, amp, sr):
 
 
 class EMAModelCheckPoint(ModelCheckpoint):
-    def __init__(self, model: torch.nn.Module, alpha=.999, *args, **kwargs):
+    def __init__(self, model: torch.nn.Module, alpha=0.999, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         self.shadow = {}
@@ -163,7 +164,7 @@ def fft_convolve(signal, kernel):
     kernel = nn.functional.pad(kernel, (kernel.shape[-1], 0))
 
     output = fft.irfft(fft.rfft(signal) * fft.rfft(kernel))
-    output = output[..., output.shape[-1] // 2:]
+    output = output[..., output.shape[-1] // 2 :]
 
     return output
 

@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from cached_conv import Conv1d, CachedConv1d, USE_BUFFER_CONV
+from cached_conv import USE_BUFFER_CONV, CachedConv1d, Conv1d
 
 Conv1d = CachedConv1d if USE_BUFFER_CONV else Conv1d
 

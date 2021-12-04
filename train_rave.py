@@ -1,18 +1,16 @@
-import torch
-from torch.utils.data import DataLoader, random_split
-
-from rave.model import RAVE
-from rave.core import random_phase_mangle, EMAModelCheckPoint
-
-from udls import SimpleDataset, simple_audio_preprocess
-from effortless_config import Config
-import pytorch_lightning as pl
 from os import environ, path
-import numpy as np
 
 import GPUtil as gpu
+import numpy as np
+import pytorch_lightning as pl
+import torch
+from effortless_config import Config
+from torch.utils.data import DataLoader, random_split
+from udls import SimpleDataset, simple_audio_preprocess
+from udls.transforms import Compose, Dequantize, RandomApply, RandomCrop
 
-from udls.transforms import Compose, RandomApply, Dequantize, RandomCrop
+from rave.core import EMAModelCheckPoint, random_phase_mangle
+from rave.model import RAVE
 
 if __name__ == "__main__":
 
@@ -70,24 +68,25 @@ if __name__ == "__main__":
         sr=args.SR,
     )
 
-    x = torch.zeros(args.BATCH, 2**14)
+    x = torch.zeros(args.BATCH, 2 ** 14)
     model.validation_step(x, 0)
 
     dataset = SimpleDataset(
         args.PREPROCESSED,
         args.WAV,
-        preprocess_function=simple_audio_preprocess(args.SR,
-                                                    2 * args.N_SIGNAL),
+        preprocess_function=simple_audio_preprocess(args.SR, 2 * args.N_SIGNAL),
         split_set="full",
-        transforms=Compose([
-            RandomCrop(args.N_SIGNAL),
-            RandomApply(
-                lambda x: random_phase_mangle(x, 20, 2000, .99, args.SR),
-                p=.8,
-            ),
-            Dequantize(16),
-            lambda x: x.astype(np.float32),
-        ]),
+        transforms=Compose(
+            [
+                RandomCrop(args.N_SIGNAL),
+                RandomApply(
+                    lambda x: random_phase_mangle(x, 20, 2000, 0.99, args.SR),
+                    p=0.8,
+                ),
+                Dequantize(16),
+                lambda x: x.astype(np.float32),
+            ]
+        ),
     )
 
     val = (2 * len(dataset)) // 100
@@ -103,11 +102,9 @@ if __name__ == "__main__":
         filename="best",
     )
     last_checkpoint = pl.callbacks.ModelCheckpoint(filename="last")
-    ema_checkpoint = EMAModelCheckPoint(model,
-                                        filename="ema",
-                                        monitor="validation")
+    ema_checkpoint = EMAModelCheckPoint(model, filename="ema", monitor="validation")
 
-    CUDA = gpu.getAvailable(maxMemory=.05)
+    CUDA = gpu.getAvailable(maxMemory=0.05)
     if len(CUDA):
         environ["CUDA_VISIBLE_DEVICES"] = str(CUDA[0])
         use_gpu = 1
@@ -120,12 +117,10 @@ if __name__ == "__main__":
         use_gpu = 0
 
     trainer = pl.Trainer(
-        logger=pl.loggers.TensorBoardLogger(path.join("runs", args.NAME),
-                                            name="rave"),
+        logger=pl.loggers.TensorBoardLogger(path.join("runs", args.NAME), name="rave"),
         gpus=use_gpu,
         val_check_interval=min(10000, len(train)),
-        callbacks=[validation_checkpoint,
-                   last_checkpoint],  #, ema_checkpoint],
+        callbacks=[validation_checkpoint, last_checkpoint],  # , ema_checkpoint],
         resume_from_checkpoint=args.CKPT,
         max_epochs=100000,
     )

@@ -1,13 +1,12 @@
+import math
+
+import numpy as np
 import torch
 import torch.nn as nn
-from scipy.signal import kaiser, kaiserord, kaiser_beta, firwin
-from scipy.optimize import fmin
-import math
-import numpy as np
+from cached_conv import USE_BUFFER_CONV, CachedConv1d, Conv1d, get_padding
 from einops import rearrange
-
-from cached_conv import get_padding
-from cached_conv import USE_BUFFER_CONV, CachedConv1d, Conv1d
+from scipy.optimize import fmin
+from scipy.signal import firwin, kaiser, kaiser_beta, kaiserord
 
 Conv1d = CachedConv1d if USE_BUFFER_CONV else Conv1d
 
@@ -20,7 +19,7 @@ def reverse_half(x):
 
 
 def center_pad_next_pow_2(x):
-    next_2 = 2**math.ceil(math.log2(x.shape[-1]))
+    next_2 = 2 ** math.ceil(math.log2(x.shape[-1]))
     pad = next_2 - x.shape[-1]
     return nn.functional.pad(x, (pad // 2, pad // 2 + int(pad % 2)))
 
@@ -46,7 +45,7 @@ def get_qmf_bank(h, n_band):
     N = h.shape[-1]
     t = torch.arange(-(N // 2), N // 2 + 1)
 
-    p = (-1)**k * math.pi / 4
+    p = (-1) ** k * math.pi / 4
 
     mod = torch.cos((2 * k + 1) * math.pi / (2 * n_band) * t + p)
     hk = 2 * h * mod
@@ -61,14 +60,14 @@ def kaiser_filter(wc, atten, N=None):
     ----------
     wc: float
         Angular frequency
-    
+
     atten: float
         Attenuation (dB, positive)
     """
     N_, beta = kaiserord(atten, wc / np.pi)
     N_ = 2 * (N_ // 2) + 1
     N = N if N is not None else N_
-    h = firwin(N, wc, window=('kaiser', beta), scale=False, nyq=np.pi)
+    h = firwin(N, wc, window=("kaiser", beta), scale=False, nyq=np.pi)
     return h
 
 
@@ -78,7 +77,7 @@ def loss_wc(wc, atten, M, N):
     """
     h = kaiser_filter(wc, atten, N)
     g = np.convolve(h, h[::-1], "full")
-    g = abs(g[g.shape[-1] // 2::2 * M][1:])
+    g = abs(g[g.shape[-1] // 2 :: 2 * M][1:])
     return np.max(g)
 
 
@@ -98,7 +97,7 @@ def polyphase_forward(x, hk, rearrange_filter=True):
     ----------
     x: torch.Tensor
         signal to analyse ( B x 1 x T )
-    
+
     hk: torch.Tensor
         filter bank ( M x T )
     """
@@ -116,7 +115,7 @@ def polyphase_inverse(x, hk, rearrange_filter=True):
     ----------
     x: torch.Tensor
         signal to synthesize from ( B x 1 x T )
-    
+
     hk: torch.Tensor
         filter bank ( M x T )
     """
@@ -132,7 +131,7 @@ def polyphase_inverse(x, hk, rearrange_filter=True):
 
     x = x.flip(1)
     x = rearrange(x, "b (c m) t -> b c (t m)", m=m)
-    x = x[..., 2 * hk.shape[1]:]
+    x = x[..., 2 * hk.shape[1] :]
     return x
 
 
@@ -143,7 +142,7 @@ def classic_forward(x, hk):
     ----------
     x: torch.Tensor
         signal to analyse ( B x 1 x T )
-    
+
     hk: torch.Tensor
         filter bank ( M x T )
     """
@@ -163,13 +162,13 @@ def classic_inverse(x, hk):
     ----------
     x: torch.Tensor
         signal to synthesize from ( B x 1 x T )
-    
+
     hk: torch.Tensor
         filter bank ( M x T )
     """
     hk = hk.flip(-1)
     y = torch.zeros(*x.shape[:2], hk.shape[0] * x.shape[-1]).to(x)
-    y[..., ::hk.shape[0]] = x * hk.shape[0]
+    y[..., :: hk.shape[0]] = x * hk.shape[0]
     y = nn.functional.conv1d(
         y,
         hk.unsqueeze(0),
@@ -189,15 +188,14 @@ class PQMF(nn.Module):
         Number of bands, must be a power of 2 if the polyphase implementation
         is needed
     """
+
     def __init__(self, attenuation, n_band, polyphase=True):
         super().__init__()
         h = get_prototype(attenuation, n_band)
 
         if polyphase:
             power = math.log2(n_band)
-            assert power == math.floor(
-                power
-            ), "when using the polyphase algorithm, n_band must be a power of 2"
+            assert power == math.floor(power), "when using the polyphase algorithm, n_band must be a power of 2"
 
         h = torch.from_numpy(h).float()
         hk = get_qmf_bank(h, n_band)

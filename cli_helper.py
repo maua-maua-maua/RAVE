@@ -1,5 +1,5 @@
-import shutil
 import math
+import shutil
 from os import path
 
 
@@ -139,8 +139,9 @@ if __name__ == "__main__":
     p("")
     header("export to max msp (coming soon)")
 
-    p("In order to use both **rave** and the **prior** model inside max/msp, we have to export them using **cached convolutions**."
-      )
+    p(
+        "In order to use both **rave** and the **prior** model inside max/msp, we have to export them using **cached convolutions**."
+    )
     p("")
 
     cmd = "python export_rave.py "

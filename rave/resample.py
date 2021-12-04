@@ -1,12 +1,10 @@
-from scipy.signal import kaiserord, firwin
 import numpy as np
-
 import torch
 import torch.nn as nn
+from cached_conv import CachedConv1d, get_padding
+from scipy.signal import firwin, kaiserord
 
 from .pqmf import kaiser_filter
-
-from cached_conv import CachedConv1d, get_padding
 
 
 class Resampling(nn.Module):

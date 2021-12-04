@@ -1,23 +1,19 @@
+import matplotlib.pyplot as plt
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import pytorch_lightning as pl
+from cached_conv import USE_BUFFER_CONV, CachedConv1d, Conv1d
+from torch.distributions import Categorical
 from tqdm import tqdm
 
-from torch.distributions import Categorical
-
-import matplotlib.pyplot as plt
-
-from .residual_block import ResidualBlock
 from .core import DiagonalShift, QuantizedNormal
-
-from cached_conv import Conv1d, CachedConv1d, USE_BUFFER_CONV
+from .residual_block import ResidualBlock
 
 Conv1d = CachedConv1d if USE_BUFFER_CONV else Conv1d
 
 
 class Model(pl.LightningModule):
-    def __init__(self, resolution, res_size, skp_size, kernel_size, cycle_size,
-                 n_layers, pretrained_vae):
+    def __init__(self, resolution, res_size, skp_size, kernel_size, cycle_size, n_layers, pretrained_vae):
         super().__init__()
         self.save_hyperparameters()
 
@@ -35,21 +31,24 @@ class Model(pl.LightningModule):
                 padding=(kernel_size - 1, 0),
                 groups=data_size,
             ),
-            nn.LeakyReLU(.2),
+            nn.LeakyReLU(0.2),
         )
 
-        self.residuals = nn.ModuleList([
-            ResidualBlock(
-                res_size,
-                skp_size,
-                kernel_size,
-                2**(i % cycle_size),
-            ) for i in range(n_layers)
-        ])
+        self.residuals = nn.ModuleList(
+            [
+                ResidualBlock(
+                    res_size,
+                    skp_size,
+                    kernel_size,
+                    2 ** (i % cycle_size),
+                )
+                for i in range(n_layers)
+            ]
+        )
 
         self.post_net = nn.Sequential(
             nn.Conv1d(skp_size, skp_size, 1),
-            nn.LeakyReLU(.2),
+            nn.LeakyReLU(0.2),
             nn.Conv1d(
                 skp_size,
                 resolution * data_size,
@@ -81,7 +80,7 @@ class Model(pl.LightningModule):
 
     def forward(self, x):
         res = self.pre_net(x)
-        skp = torch.tensor(0.).to(x)
+        skp = torch.tensor(0.0).to(x)
         for layer in self.residuals:
             res, skp = layer(res, skp)
         x = self.post_net(skp)
@@ -95,14 +94,14 @@ class Model(pl.LightningModule):
             else:
                 start = None
 
-            pred = self.forward(x[..., start:i + 1])
+            pred = self.forward(x[..., start : i + 1])
 
             if not USE_BUFFER_CONV:
                 pred = pred[..., -1:]
 
             pred = self.post_process_prediction(pred, argmax=argmax)
 
-            x[..., i + 1:i + 2] = pred
+            x[..., i + 1 : i + 2] = pred
         return x
 
     def split_classes(self, x):

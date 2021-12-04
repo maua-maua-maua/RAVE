@@ -1,20 +1,17 @@
 import torch
 
 torch.set_grad_enabled(False)
-import torch.nn as nn
-from effortless_config import Config
+import logging
+import math
 from glob import glob
 from os import path
-import logging
+
+import torch.nn as nn
+from cached_conv import use_buffer_conv
+from effortless_config import Config
 from termcolor import colored
 
-import math
-
-from cached_conv import use_buffer_conv
-
-logging.basicConfig(level=logging.INFO,
-                    format=colored("[%(relativeCreated).2f] ", "green") +
-                    "%(message)s")
+logging.basicConfig(level=logging.INFO, format=colored("[%(relativeCreated).2f] ", "green") + "%(message)s")
 
 logging.info("exporting model")
 
@@ -28,6 +25,7 @@ args.parse_args()
 use_buffer_conv(True)
 
 from cached_conv import *
+
 from prior.model import Model
 from rave.core import search_for_run
 
@@ -40,7 +38,7 @@ class TraceModel(nn.Module):
         self.data_size = data_size
         self.pretrained = pretrained
 
-        x = torch.zeros(1, 1, 2**14)
+        x = torch.zeros(1, 1, 2 ** 14)
         z = self.pretrained.encode(x)
         ratio = x.shape[-1] // z.shape[-1]
 
@@ -53,8 +51,7 @@ class TraceModel(nn.Module):
 
         self.register_buffer(
             "previous_step",
-            self.pretrained.quantized_normal.encode(
-                torch.zeros(1, data_size, 1)),
+            self.pretrained.quantized_normal.encode(torch.zeros(1, data_size, 1)),
         )
 
         self.pre_diag_cache = CachedPadding1d(data_size - 1)
@@ -86,7 +83,7 @@ class TraceModel(nn.Module):
         temp = nn.functional.softplus(temp) / math.log(2)
 
         for i in range(x.shape[-1]):
-            x[..., i:i + 1] = self.step_forward(temp)
+            x[..., i : i + 1] = self.step_forward(temp)
 
         return x
 
@@ -99,7 +96,7 @@ model = Model.load_from_checkpoint(RUN, strict=False).eval()
 
 logging.info("warmup forward pass")
 
-x = torch.zeros(1, 1, 2**17)
+x = torch.zeros(1, 1, 2 ** 17)
 x = model.encode(x)
 x = torch.zeros_like(x)
 x = model.quantized_normal.encode(model.diagonal_shift(x))
