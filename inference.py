@@ -26,5 +26,5 @@ with torch.inference_mode():
     decoded = rave.decode(encoded)
     print(decoded.shape)
 
-    write_wav("runs/20k_bass_dnb_samples/rave/inference/original.wav", 41000, batch.squeeze().flatten().numpy())
-    write_wav("runs/20k_bass_dnb_samples/rave/inference/decoded.wav", 41000, decoded.squeeze().flatten().numpy())
+    write_wav("/home/hans/datasets/music-samples/generations/original.wav", 41000, batch.squeeze().flatten().numpy())
+    write_wav("/home/hans/datasets/music-samples/generations/decoded.wav", 41000, decoded.squeeze().flatten().numpy())
