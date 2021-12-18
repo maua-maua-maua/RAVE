@@ -585,6 +585,20 @@ class RAVE(pl.LightningModule):
 
         # print(p)
 
+    def encode(self, x):
+        if self.pqmf is not None:
+            x = self.pqmf(x)
+
+        mean, scale = self.encoder(x)
+        z, _ = self.reparametrize(mean, scale)
+        return z
+
+    def decode(self, z):
+        y = self.decoder(z, add_noise=True)
+        if self.pqmf is not None:
+            y = self.pqmf.inverse(y)
+        return y
+
     def validation_step(self, batch, batch_idx):
         x = batch.unsqueeze(1)
 
@@ -632,6 +646,6 @@ class RAVE(pl.LightningModule):
             for p in var_percent:
                 self.log(f"{p}%_manifold", np.argmax(var > p))
 
-        y = audio[0][:16].reshape(-1)
+        y = torch.cat(audio, 0)[:64].reshape(-1)
         self.logger.experiment.add_audio("audio_val", y, self.idx, self.sr)
         self.idx += 1
